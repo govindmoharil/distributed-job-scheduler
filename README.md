@@ -5,13 +5,6 @@
 ```bash
 docker compose up --build
 
-
-
-
-
-
-
-
 #  Production-Grade Distributed Job Scheduler
 
 A high-throughput, multi-tenant background job orchestration engine designed to eliminate race conditions, handle worker node failures, manage complex DAG workflows, and provide live observability.
