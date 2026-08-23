@@ -1,7 +1,5 @@
 # Distributed Job Scheduler Platform
 
-Production-ready distributed job scheduling platform built with TypeScript, Node.js, PostgreSQL, Redis, and Tailwind CSS.
-
 ## Quick Start (Docker Compose)
 
 ```bash
