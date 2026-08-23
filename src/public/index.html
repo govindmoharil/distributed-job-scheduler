@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distributed Job Scheduler Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <header class="flex justify-between items-center pb-6 border-b border-slate-800">
+      <div>
+        <h1 class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">
+          Distributed Scheduler Console
+        </h1>
+        <p class="text-xs text-slate-400 mt-1">Multi-Tenant High-Throughput Background Job Engine</p>
+      </div>
+      <div class="flex items-center space-x-3">
+        <input id="apiKey" type="password" value="test-api-key-12345" class="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded text-xs focus:outline-none focus:border-blue-500" />
+        <button onclick="refreshDashboard()" class="bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded text-xs font-semibold">Refresh</button>
+      </div>
+    </header>
+
+    <!-- Queues Section -->
+    <section class="mt-8">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">Configured Queues</h2>
+      <div id="queuesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </section>
+
+    <!-- Workers & DLQ Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+      <section>
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">Worker Fleet</h2>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-800/50 text-slate-400">
+              <tr>
+                <th class="p-3">Hostname</th>
+                <th class="p-3">Status</th>
+                <th class="p-3">Active Tasks</th>
+                <th class="p-3">Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="workersBody" class="divide-y divide-slate-800 font-mono"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-rose-400">Dead Letter Queue (DLQ)</h2>
+          <button onclick="replayAllDLQ()" class="bg-rose-900/60 border border-rose-700 hover:bg-rose-800 text-rose-200 px-2.5 py-1 rounded text-xs">Replay All</button>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-800/50 text-slate-400">
+              <tr>
+                <th class="p-3">Job Name</th>
+                <th class="p-3">Error</th>
+                <th class="p-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="dlqBody" class="divide-y divide-slate-800 font-mono"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Job Explorer -->
+    <section class="mt-8">
+      <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">Recent Jobs Explorer</h2>
+      <div class="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-800/50 text-slate-400">
+            <tr>
+              <th class="p-3">ID</th>
+              <th class="p-3">Name</th>
+              <th class="p-3">Queue</th>
+              <th class="p-3">Status</th>
+              <th class="p-3">Attempts</th>
+              <th class="p-3">Created</th>
+            </tr>
+          </thead>
+          <tbody id="jobsBody" class="divide-y divide-slate-800 font-mono"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const getHeaders = () => ({ 'X-API-Key': document.getElementById('apiKey').value });
+
+    async function refreshDashboard() {
+      const headers = getHeaders();
+      
+      // Load Queues
+      const qRes = await fetch('/api/v1/queues', { headers });
+      const qData = await qRes.json();
+      document.getElementById('queuesGrid').innerHTML = (qData.queues || []).map(q => `
+        <div class="bg-slate-900 border border-slate-800 p-4 rounded-lg">
+          <div class="flex justify-between items-center mb-3">
+            <span class="font-bold text-sm">${q.name}</span>
+            <button onclick="toggleQueuePause('${q.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${q.is_paused ? 'bg-emerald-600' : 'bg-amber-600'}">
+              ${q.is_paused ? 'Resume' : 'Pause'}
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+            <div class="bg-slate-800/40 p-2 rounded"><div class="text-slate-400 text-[10px]">QUEUED</div><div class="text-blue-400 font-bold">${q.queued_count}</div></div>
+            <div class="bg-slate-800/40 p-2 rounded"><div class="text-slate-400 text-[10px]">ACTIVE</div><div class="text-yellow-400 font-bold">${q.active_count}</div></div>
+            <div class="bg-slate-800/40 p-2 rounded"><div class="text-slate-400 text-[10px]">DLQ</div><div class="text-rose-400 font-bold">${q.dead_letter_count}</div></div>
+          </div>
+        </div>
+      `).join('');
+
+      // Load Workers
+      const wRes = await fetch('/api/v1/workers', { headers });
+      const wData = await wRes.json();
+      document.getElementById('workersBody').innerHTML = (wData.workers || []).map(w => `
+        <tr>
+          <td class="p-3 text-slate-300">${w.hostname}</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] ${w.is_healthy ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}">${w.status}</span></td>
+          <td class="p-3">${w.active_jobs_count}</td>
+          <td class="p-3 text-slate-400">${new Date(w.last_seen_at).toLocaleTimeString()}</td>
+        </tr>
+      `).join('');
+
+      // Load DLQ
+      const dlqRes = await fetch('/api/v1/dlq', { headers });
+      const dlqData = await dlqRes.json();
+      document.getElementById('dlqBody').innerHTML = (dlqData.dlq || []).map(d => `
+        <tr>
+          <td class="p-3 text-slate-300">${d.job_name}</td>
+          <td class="p-3 text-rose-400 truncate max-w-xs">${d.last_error_message}</td>
+          <td class="p-3 text-right"><button onclick="replayJob('${d.job_id}')" class="bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-[10px]">Replay</button></td>
+        </tr>
+      `).join('');
+
+      // Load Jobs
+      const jRes = await fetch('/api/v1/jobs', { headers });
+      const jData = await jRes.json();
+      document.getElementById('jobsBody').innerHTML = (jData.jobs || []).map(j => `
+        <tr>
+          <td class="p-3 text-slate-400">${j.id.slice(0, 8)}</td>
+          <td class="p-3 font-semibold">${j.name}</td>
+          <td class="p-3 text-slate-300">${j.queue_name}</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-blue-300 font-bold">${j.status}</span></td>
+          <td class="p-3">${j.attempt}/${j.max_retries}</td>
+          <td class="p-3 text-slate-400">${new Date(j.created_at).toLocaleTimeString()}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function toggleQueuePause(id) {
+      await fetch(`/api/v1/queues/${id}/toggle-pause`, { method: 'PATCH', headers: getHeaders() });
+      refreshDashboard();
+    }
+
+    async function replayJob(jobId) {
+      await fetch(`/api/v1/dlq/${jobId}/replay`, { method: 'POST', headers: getHeaders() });
+      refreshDashboard();
+    }
+
+    async function replayAllDLQ() {
+      await fetch('/api/v1/dlq/replay-all', { method: 'POST', headers: getHeaders() });
+      refreshDashboard();
+    }
+
+    setInterval(refreshDashboard, 3000);
+    refreshDashboard();
+  </script>
+</body>
+</html>
